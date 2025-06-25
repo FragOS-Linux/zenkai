@@ -252,7 +252,14 @@ main() {
     PART_PREFIX="${FILE_NAME%.part.aa}"
     NAME=$(echo "${PART_PREFIX}" | cut -f 1 -d '.')
     SUBVOL="${DEPLOY_PATH}/${NAME}"
-
+    
+    # Set BASE_URL from the source path if it's a URL, otherwise use current directory
+    if [[ "${zenkai_SOURCE}" =~ ^https?:// ]]; then
+        BASE_URL=$(dirname "${zenkai_SOURCE}")
+    else
+        BASE_URL="."
+    fi
+    
     part_suffix=aa
     PARTS=()
     while true; do
