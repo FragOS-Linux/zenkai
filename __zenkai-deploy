@@ -241,99 +241,126 @@ main() {
         echo "WARNING: source wasn't specified"
     fi
 
-    if [[ "$zenkai_SOURCE" == *".img.tar.xz" ]]; then
-        FILE_NAME=$(basename ${zenkai_SOURCE})
-        NAME=$(echo "${FILE_NAME}" | cut -f 1 -d '.')
-        SUBVOL="${DEPLOY_PATH}/${NAME}"
-        IMG_FILE=${zenkai_SOURCE}
-    elif [[ "$zenkai_SOURCE" == *".img" ]]; then
-        FILE_NAME=$(basename ${zenkai_SOURCE})
-        NAME=$(echo "${FILE_NAME}" | cut -f 1 -d '.')
-        SUBVOL="${DEPLOY_PATH}/${NAME}"
-        IMG_FILE=${zenkai_SOURCE}
-    else
-        REPO=$(echo "${SOURCE}" | cut -f 1 -d ':')
-        CHANNEL=$(echo "${SOURCE}" | cut -f 2 -d ':')
+    if [[ "$zenkai_SOURCE" == *.img.tar.xz ]]; then
+    FILE_NAME=$(basename "${zenkai_SOURCE}")
+    NAME=$(echo "${FILE_NAME}" | cut -f 1 -d '.')
+    SUBVOL="${DEPLOY_PATH}/${NAME}"
+    IMG_FILE=${zenkai_SOURCE}
 
-        RELEASES_URL="https://api.github.com/repos/${REPO}/releases"
+    elif [[ "$zenkai_SOURCE" == *.img.tar.xz.part.aa ]]; then
+    FILE_NAME=$(basename "${zenkai_SOURCE}")
+    PART_PREFIX="${FILE_NAME%.part.aa}"
+    NAME=$(echo "${PART_PREFIX}" | cut -f 1 -d '.')
+    SUBVOL="${DEPLOY_PATH}/${NAME}"
 
-        IMG_URL=$(curl --http1.1 -L -s "${RELEASES_URL}" | get_img_url "${CHANNEL}")
-
-        if [ -z "$IMG_URL" ] || [ "$IMG_URL" == "null" ]; then
-            echo "No matching source found"
-            if curl --http1.1 -L -s "${RELEASES_URL}" | grep "rate limit" > /dev/null; then
-                echo "GitHub API rate limit exceeded"
-                exit 29
-            fi
-            exit 1
-        fi
-
-        FILE_NAME=$(basename ${IMG_URL})
-        NAME=$(echo "${FILE_NAME}" | cut -f 1 -d '.')
-        BASE_URL=$(dirname "${IMG_URL}")
-        CHECKSUM=$(curl --http1.1 -L -s "${BASE_URL}/sha256sum.txt" | cut -f -1 -d ' ')
-        SUBVOL="${DEPLOY_PATH}/${NAME}"
-        IMG_FILE="${MOUNT_PATH}/${FILE_NAME}"
-
-        if [ -e ${SUBVOL} ]; then
-            echo "${NAME} already installed; aborting"
-            exit 7 # let Steam know there is no update available
-        fi
-
-        if [ $zenkai_CHECK_UPDATE -eq 1 ]; then
-            echo "Update available: ${NAME}"
-            exit 0 # let Steam know there is an update available
-        fi
-
-        if [[ "${FILE_NAME}" == *.part.aa ]]; then
-            PART_PREFIX="${FILE_NAME%.part.aa}"
-            part_suffix=aa
-            PARTS=()
-            while true; do
-                PART_FILE="${PART_PREFIX}.part.${part_suffix}"
-                PART_URL="${BASE_URL}/${PART_FILE}"
-                if curl --head --silent --fail "${PART_URL}" > /dev/null; then
-                    echo "Pobieranie części: ${PART_FILE}"
-                    curl --http1.1 -L -o "${MOUNT_PATH}/${PART_FILE}" -C - "${PART_URL}"
-                    PARTS+=("${MOUNT_PATH}/${PART_FILE}")
-                    # Zwiększ sufiks (aa, ab, ac, ...)
-                    part_suffix=$(echo $part_suffix | awk '
-                        {
-                            if(substr($0,2,1)=="z"){
-                                printf("%c%c", substr($0,1,1)+1, 97)
-                            }else{
-                                printf("%c%c", substr($0,1,1), substr($0,2,1)+1)
-                            }
-                        }')
-                else
-                    break
-                fi
-            done
-            # Połącz części w jeden plik
-            cat "${MOUNT_PATH}/${PART_PREFIX}".part.* > "${MOUNT_PATH}/${PART_PREFIX}"
-            IMG_FILE="${MOUNT_PATH}/${PART_PREFIX}"
+    part_suffix=aa
+    PARTS=()
+    while true; do
+        PART_FILE="${PART_PREFIX}.part.${part_suffix}"
+        PART_URL="${BASE_URL}/${PART_FILE}"
+        if curl --head --silent --fail "${PART_URL}" > /dev/null; then
+            echo "Pobieranie części: ${PART_FILE}"
+            curl --http1.1 -L -o "${MOUNT_PATH}/${PART_FILE}" -C - "${PART_URL}"
+            PARTS+=("${MOUNT_PATH}/${PART_FILE}")
+            # Zwiększ sufiks (aa, ab, ac, ...)
+            part_suffix=$(echo $part_suffix | awk '
+                {
+                    if(substr($0,2,1)=="z"){
+                        printf("%c%c", substr($0,1,1)+1, 97)
+                    }else{
+                        printf("%c%c", substr($0,1,1), substr($0,2,1)+1)
+                    }
+                }')
         else
-            if [ $zenkai_STEAM_PROGRESS -eq 1 ]; then
-                curl --http1.1 -# -L -o "${IMG_FILE}" -C - "${IMG_URL}" 2>&1 | \
-                stdbuf -oL tr '\r' '\n' | grep --line-buffered -oP '[0-9]*+(?=.[0-9])' | clean_progress 91 %
-            elif [ -z ${SHOW_UI} ]; then
-                echo "downloading ${NAME}..."
-                curl --http1.1 -L -o "${IMG_FILE}" -C - "${IMG_URL}"
-            else
-                curl --http1.1 -# -L -o "${IMG_FILE}" -C - "${IMG_URL}" 2>&1 | \
-                stdbuf -oL tr '\r' '\n' | grep --line-buffered -oP '[0-9]*+(?=.[0-9])' | clean_progress 100 | \
-                whiptail --gauge "Downloading system image (${NAME})" 10 50 0
-            fi
+            break
         fi
-        # --- Koniec obsługi części ---
+    done
+    # Połącz części w jeden plik
+    cat "${MOUNT_PATH}/${PART_PREFIX}".part.* > "${MOUNT_PATH}/${PART_PREFIX}"
+    IMG_FILE="${MOUNT_PATH}/${PART_PREFIX}"
 
-        CHECKSUM2=`sha256sum "${IMG_FILE}" | cut -d' ' -f 1`
-        if [ "$CHECKSUM" != "$CHECKSUM2" ]; then
-            rm -f "${IMG_FILE}"
-            echo "checksum does not match; aborting"
-            exit 1
+    elif [[ "$zenkai_SOURCE" == *.img ]]; then
+    FILE_NAME=$(basename "${zenkai_SOURCE}")
+    NAME=$(echo "${FILE_NAME}" | cut -f 1 -d '.')
+    SUBVOL="${DEPLOY_PATH}/${NAME}"
+    IMG_FILE=${zenkai_SOURCE}
+
+    else
+    REPO=$(echo "${SOURCE}" | cut -f 1 -d ':')
+    CHANNEL=$(echo "${SOURCE}" | cut -f 2 -d ':')
+
+    RELEASES_URL="https://api.github.com/repos/${REPO}/releases"
+
+    IMG_URL=$(curl --http1.1 -L -s "${RELEASES_URL}" | get_img_url "${CHANNEL}")
+
+    if [ -z "$IMG_URL" ] || [ "$IMG_URL" == "null" ]; then
+        echo "No matching source found"
+        if curl --http1.1 -L -s "${RELEASES_URL}" | grep "rate limit" > /dev/null; then
+            echo "GitHub API rate limit exceeded"
+            exit 29
         fi
+        exit 1
+    fi
+
+    FILE_NAME=$(basename "${IMG_URL}")
+    NAME=$(echo "${FILE_NAME}" | cut -f 1 -d '.')
+    BASE_URL=$(dirname "${IMG_URL}")
+    CHECKSUM=$(curl --http1.1 -L -s "${BASE_URL}/sha256sum.txt" | cut -f -1 -d ' ')
+    SUBVOL="${DEPLOY_PATH}/${NAME}"
+    IMG_FILE="${MOUNT_PATH}/${FILE_NAME}"
+
+    if [ -e "${SUBVOL}" ]; then
+        echo "${NAME} already installed; aborting"
+        exit 7 # let Steam know there is no update available
+    fi
+
+    if [ $zenkai_CHECK_UPDATE -eq 1 ]; then
+        echo "Update available: ${NAME}"
+        exit 0 # let Steam know there is an update available
+    fi
+
+    if [[ "${FILE_NAME}" == *.part.aa ]]; then
+        PART_PREFIX="${FILE_NAME%.part.aa}"
+        part_suffix=aa
+        PARTS=()
+        while true; do
+            PART_FILE="${PART_PREFIX}.part.${part_suffix}"
+            PART_URL="${BASE_URL}/${PART_FILE}"
+            if curl --head --silent --fail "${PART_URL}" > /dev/null; then
+                echo "Pobieranie części: ${PART_FILE}"
+                curl --http1.1 -L -o "${MOUNT_PATH}/${PART_FILE}" -C - "${PART_URL}"
+                PARTS+=("${MOUNT_PATH}/${PART_FILE}")
+                # Zwiększ sufiks (aa, ab, ac, ...)
+                part_suffix=$(echo $part_suffix | awk '
+                    {
+                        if(substr($0,2,1)=="z"){
+                            printf("%c%c", substr($0,1,1)+1, 97)
+                        }else{
+                            printf("%c%c", substr($0,1,1), substr($0,2,1)+1)
+                        }
+                    }')
+            else
+                break
+            fi
+        done
+        # Połącz części w jeden plik
+        cat "${MOUNT_PATH}/${PART_PREFIX}".part.* > "${MOUNT_PATH}/${PART_PREFIX}"
+        IMG_FILE="${MOUNT_PATH}/${PART_PREFIX}"
+    else
+        if [ $zenkai_STEAM_PROGRESS -eq 1 ]; then
+            curl --http1.1 -# -L -o "${IMG_FILE}" -C - "${IMG_URL}" 2>&1 | \
+            stdbuf -oL tr '\r' '\n' | grep --line-buffered -oP '[0-9]*+(?=.[0-9])' | clean_progress 91 %
+        elif [ -z ${SHOW_UI} ]; then
+            echo "downloading ${NAME}..."
+            curl --http1.1 -L -o "${IMG_FILE}" -C - "${IMG_URL}"
+        else
+            curl --http1.1 -# -L -o "${IMG_FILE}" -C - "${IMG_URL}" 2>&1 | \
+            stdbuf -oL tr '\r' '\n' | grep --line-buffered -oP '[0-9]*+(?=.[0-9])' | clean_progress 100 | \
+            whiptail --gauge "Downloading system image (${NAME})" 10 50 0
         fi
+    fi
+fi
+
 
     if [ -z ${SHOW_UI} ]; then
         echo "installing ${NAME}..."
