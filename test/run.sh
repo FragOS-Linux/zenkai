@@ -22,15 +22,15 @@ check() {
 echo
 echo '== get_img_url'
 echo '==== stable channel'
-check 'should select the system image asset in stable'            $(cat test1.dat  | get_img_url stable) 'fragos-1_0000000.img.tar.xz.part.aa' 'fragos-1_0000000.img.tar.xz.part.ab'
+check 'should select the system image asset in stable'            $(cat test1.dat  | get_img_url stable) 'fragos-1_0000000.img.tar.xz.part.ab' 'fragos-1_0000000.img.tar.xz.part.aa'
 
 echo
 echo '==== testing channel'
-check 'should select the system image asset in testing'            $(cat test1.dat  | get_img_url testing) 'fragos-2_0000000.img.tar.xz.part.aa' 'fragos-2_0000000.img.tar.xz.part.ab'
+check 'should select the system image asset in testing'            $(cat test1.dat  | get_img_url testing) 'fragos-2_0000000.img.tar.xz.part.ab' 'fragos-2_0000000.img.tar.xz.part.aa'
 
 echo
 echo '==== unstable channel'
-check 'should select the system image asset in unstable'            $(cat test1.dat  | get_img_url unstable) 'fragos-3_0000000.img.tar.xz.part.aa' 'fragos-3_0000000.img.tar.xz.part.ab'
+check 'should select the system image asset in unstable'            $(cat test1.dat  | get_img_url unstable) 'fragos-3_0000000.img.tar.xz.part.ab' 'fragos-3_0000000.img.tar.xz.part.aa'
 
 echo
 echo '== get_boot_cfg'
