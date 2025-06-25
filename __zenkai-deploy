@@ -178,7 +178,7 @@ main() {
                 exit 1
                 ;;
             *) # preserve positional arguments
-                zenkai_PARAMS="${zenkai_PARAMS}$1 " # Use trailing space for the match below
+                zenkai_PARAMS="${zenkai_PARAMS}${1} " # Use trailing space for the match below
                 shift
                 ;;
         esac
