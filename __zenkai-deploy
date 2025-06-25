@@ -259,6 +259,8 @@ main() {
     else
         BASE_URL="."
     fi
+    echo "BASE_URL: $BASE_URL"
+    echo "PART_PREFIX: $PART_PREFIX"
     
     part_suffix=aa
     PARTS=()
@@ -266,10 +268,10 @@ main() {
         PART_FILE="${PART_PREFIX}.part.${part_suffix}"
         PART_URL="${BASE_URL}/${PART_FILE}"
         if curl --head --silent --fail "${PART_URL}" > /dev/null; then
-            echo "Pobieranie części: ${PART_FILE}"
+            echo "Downloading part: ${PART_FILE}"
             curl --http1.1 -L -o "${MOUNT_PATH}/${PART_FILE}" -C - "${PART_URL}"
             PARTS+=("${MOUNT_PATH}/${PART_FILE}")
-            # Zwiększ sufiks (aa, ab, ac, ...)
+            # Increment suffix (aa, ab, ..., az, ba, ...)
             part_suffix=$(echo $part_suffix | awk '
                 {
                     if(substr($0,2,1)=="z"){
