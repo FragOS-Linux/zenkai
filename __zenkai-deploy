@@ -80,9 +80,10 @@ get_img_url() {
         fi
     fi
 
-    # Handle split files
+    # Handle split files - POPRAWIONE: zwracanie wszystkich części
     if [[ "$result" == *".part.aa"* ]]; then
         release_id=$(echo "$releases_json" | jq -r '.[0].id')
+        # Pobierz wszystkie części, nie tylko pierwszą
         parts=$(curl -s "https://api.github.com/repos/${REPO}/releases/${release_id}/assets" | \
                 jq -r '.[] | select(.name | test(".*part.a[a-z]")) | .browser_download_url' | sort)
         echo $parts
@@ -317,7 +318,7 @@ main() {
         # Capture API response for debugging
         api_response=$(curl --http1.1 -L -s "${RELEASES_URL}")
 
-        # POPRAWIONE: Sprawdzanie błędów API
+        # Check for API errors
         if echo "$api_response" | jq -e 'type == "object" and has("message")' >/dev/null; then
             error_message=$(echo "$api_response" | jq -r '.message')
             echo "GitHub API error: $error_message"
