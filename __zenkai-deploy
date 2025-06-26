@@ -17,7 +17,7 @@ get_img_url() {
     stable_release_date="1970-01-01T00:00:00Z"
     stable_download_url=""
 
-    stable_entry=$(echo "${result}" | jq '.[] | select(.prerelease == false) | .created_at' | head -1)
+    stable_entry=$(echo "${result}" | jq -r '.[] | select(.prerelease == false) | .created_at' | head -1)
     if [ -n "$stable_entry" ]; then
         stable_release_date=$stable_entry
         stable_download_url=$(echo "${result}" | jq -r '.[] | select(.prerelease == false) | .assets[] | select(.browser_download_url | test("img")) | .browser_download_url' | head -1)
@@ -80,7 +80,7 @@ get_img_url() {
         fi
     fi
 
-    # Check if the result contains split files
+    # Handle split files
     if [[ "$result" == *".part.aa"* ]]; then
         release_id=$(echo "$releases_json" | jq -r '.[0].id')
         parts=$(curl -s "https://api.github.com/repos/${REPO}/releases/${release_id}/assets" | \
@@ -141,12 +141,16 @@ clean_progress() {
 }
 
 download_parts() {
-    local parts=($1)
+    local parts_str=$1
     local mount_path=$2
     local steam_progress=$3
     local show_ui=$4
 
-    BASE_NAME=$(basename "${parts[0]%.part.aa}")
+    # Convert string to array
+    IFS=' ' read -r -a parts <<< "$parts_str"
+
+    # Get base name from first part
+    BASE_NAME=$(basename "${parts[0]%.part.aa*}")
     PART_FILES=()
 
     # Download each part
@@ -182,6 +186,8 @@ download_parts() {
             rm -f "${mount_path}/${BASE_NAME}"
             exit 1
         fi
+    else
+        echo "Warning: No sha256sum.txt found, skipping checksum verification"
     fi
 
     # Clean up parts
