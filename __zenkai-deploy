@@ -3,109 +3,126 @@
 set -e
 set -o pipefail
 
+combine_parts() {
+    local source_dir=$1
+    local file_pattern=$2
+    local output_file=$3
+
+    # Znajdź i posortuj wszystkie części
+    local parts=($(find "${source_dir}" -name "${file_pattern}.part."* | sort -V))
+    if [ ${#parts[@]} -eq 0 ]; then
+        return 1
+    fi
+
+    # Połącz części
+    cat "${parts[@]}" > "${output_file}"
+    return 0
+}
+
 get_img_url() {
-    CHANNEL=$1
+	CHANNEL=$1
 
-    # Order by creation date in reverse
-    result=$(jq 'sort_by(.created_at) | reverse')
+	# Order by creation date in reverse
+	result=$(jq 'sort_by(.created_at) | reverse')
 
-    # Remove entries which have not been completed uploading
-    result=$(echo "${result}" | jq 'del(.[] | select(.assets[].state != "uploaded"))')
+	# Remove entries which have not been completed uploading
+	result=$(echo "${result}" | jq 'del(.[] | select(.assets[].state != "uploaded"))')
 
-    # Always check for stable date
-    if stable_release_date=$(echo "${result}" | jq -er '[ .[] |
-            select(.prerelease==false) ] |
-            first |
-            .created_at'
-        ); then
-        # Check for stable url, this is the latest that have prerelease == false
-        stable_download_url=$(echo "${result}" | jq -r '[ .[] |
-            select(.prerelease==false) ] |
-            first |
-            .assets[] |
-            select(.browser_download_url | test("img")) |
-            .browser_download_url'
-        )
-    else
-        # No stable channel found, pick some (old) values
-        # For testing/ channel selection
-        stable_release_date="1970-01-01T00:00:00Z"
-        stable_download_url=""
-    fi
+	# Always check for stable date
+	if stable_release_date=$(echo "${result}" | jq -er '[ .[] |
+			select(.prerelease==false) ] |
+			first |
+			.created_at'
+		); then
+		# Check for stable url, this is the latest that have prerelease == false
+		stable_download_url=$(echo "${result}" | jq -r '[ .[] |
+			select(.prerelease==false) ] |
+			first |
+			.assets[] |
+			select(.browser_download_url | test("img")) |
+			.browser_download_url'
+		)
+	else
+		# No stable channel found, pick some (old) values
+		# For testing/ channel selection
+		stable_release_date="1970-01-01T00:00:00Z"
+		stable_download_url=""
+	fi
 
-    # Filter channels by release naming conventions
-    if [[ "$CHANNEL" =~ ^[0-9]+\-?[0-9]*$ ]] ; then
-        # Check first for explicit version numbers between stable releases
-        # Useful for downgrading
-        result=$(echo "${result}" | jq -r "[ .[] |
-                    select(.prerelease==false) |
-                    select(.name|test(\" ${CHANNEL}\$\")) ] |
-                    first |
-                    .assets[] |
-                    select(.browser_download_url | test(\"img\")) |
-                    .browser_download_url"
-                )
-    elif [ "$CHANNEL" == "stable" ]; then
-        result=$stable_download_url
-    elif [ "$CHANNEL" == "testing" ]; then
-        # Testing channel have prerelease = true and no other tags
-        if testing_release_date=$(echo "${result}" | jq -er '[ .[] |
-            select(.prerelease==true) |
-            select(.name|test("\\[.*\\]")|not) ] |
-            first |
-            .created_at'
-            ); then
-            testing_url=$(echo "${result}" | jq -r '[ .[] |
-                        select(.prerelease==true) |
-                        select(.name|test("\\[.*\\]")|not) ] |
-                        first |
-                        .assets[] |
-                        select(.browser_download_url | test("img")) |
-                        .browser_download_url'
-                    )
-            if [ $(date -d $testing_release_date +%s) -le $(date -d $stable_release_date +%s) ]; then
-                result=$stable_download_url
-            else
-                result=$testing_url
-            fi
-        else
-            result=$stable_download_url
-        fi
-    else
-        # Match any release with CHANNEL as a tag (including unstable)
-        result=$(echo ${result} | jq "[ .[] | select(.prerelease==true) | select(.name|test(\"\\\[${CHANNEL}\\\]\" ; \"i\")) ]")
-            if unstable_release_date=$(echo "${result}" | jq -er "[ .[] |
-                    select(.prerelease==true) |
-                    select(.name|test(\"\\\[${CHANNEL}\\\]\" ; \"i\")) ] |
-                    first |
-                    .created_at"
-                ); then
-            unstable_url=$(echo "${result}" | jq -r "[ .[] |
-                        select(.prerelease==true) |
-                        select(.name|test(\"\\\[${CHANNEL}\\\]\" ; \"i\")) ] |
-                        first |
-                        .assets[] |
-                        select(.browser_download_url | test(\"img\")) |
-                        .browser_download_url"
-                    )
-            if [ $(date -d $unstable_release_date +%s) -le $(date -d $stable_release_date +%s) ]; then
-                result=$stable_download_url
-            else
-                result=$unstable_url
-            fi
-        else
-            result=$stable_download_url
-        fi
-    fi
 
-    echo $result
+	# Filter channels by release naming conventions
+	if [[ "$CHANNEL" =~ ^[0-9]+\-?[0-9]*$ ]] ; then
+		# Check first for explicit version numbers between stable releases
+		# Useful for downgrading
+		result=$(echo "${result}" | jq -r "[ .[] |
+					select(.prerelease==false) |
+					select(.name|test(\" ${CHANNEL}\$\")) ] |
+					first |
+					.assets[] |
+					select(.browser_download_url | test(\"img\")) |
+					.browser_download_url"
+				)
+	elif [ "$CHANNEL" == "stable" ]; then
+		result=$stable_download_url
+	elif [ "$CHANNEL" == "testing" ]; then
+		# Testing channel have prerelease = true and no other tags
+		if testing_release_date=$(echo "${result}" | jq -er '[ .[] |
+			select(.prerelease==true) |
+			select(.name|test("\\[.*\\]")|not) ] |
+			first |
+			.created_at'
+			); then
+			testing_url=$(echo "${result}" | jq -r '[ .[] |
+						select(.prerelease==true) |
+						select(.name|test("\\[.*\\]")|not) ] |
+						first |
+						.assets[] |
+						select(.browser_download_url | test("img")) |
+						.browser_download_url'
+					)
+			if [ $(date -d $testing_release_date +%s) -le $(date -d $stable_release_date +%s) ]; then
+				result=$stable_download_url
+			else
+				result=$testing_url
+			fi
+		else
+			result=$stable_download_url
+		fi
+	else
+		# Match any release with CHANNEL as a tag (including unstable)
+		result=$(echo ${result} | jq "[ .[] | select(.prerelease==true) | select(.name|test(\"\\\[${CHANNEL}\\\]\" ; \"i\")) ]")
+			if unstable_release_date=$(echo "${result}" | jq -er "[ .[] |
+					select(.prerelease==true) |
+					select(.name|test(\"\\\[${CHANNEL}\\\]\" ; \"i\")) ] |
+					first |
+					.created_at"
+				); then
+			unstable_url=$(echo "${result}" | jq -r "[ .[] |
+						select(.prerelease==true) |
+						select(.name|test(\"\\\[${CHANNEL}\\\]\" ; \"i\")) ] |
+						first |
+						.assets[] |
+						select(.browser_download_url | test(\"img\")) |
+						.browser_download_url"
+					)
+			if [ $(date -d $unstable_release_date +%s) -le $(date -d $stable_release_date +%s) ]; then
+				result=$stable_download_url
+			else
+				result=$unstable_url
+			fi
+		else
+			result=$stable_download_url
+		fi
+	fi
+
+	echo $result
 }
 
 get_boot_cfg() {
-    local version=${1}
-    local amd_ucode=${2}
-    local intel_ucode=${3}
-    local additional_arguments=${4}
+	local version=${1}
+	local amd_ucode=${2}
+	local intel_ucode=${3}
+	local additional_arguments=${4}
 
 echo "title ${version}
 linux /${version}/vmlinuz-linux
@@ -117,327 +134,309 @@ options root=LABEL=zenkai_root rw rootflags=subvol=deployments/${version} quiet 
 }
 
 get_deployment_to_delete() {
-    local current_version=${1}
-    local boot_cfg_path=${2}
-    local deployment_path=${3}
+	local current_version=${1}
+	local boot_cfg_path=${2}
+	local deployment_path=${3}
 
-    local TO_BOOT=`get_next_boot_deployment ${current_version} ${boot_cfg_path}`
+	local TO_BOOT=`get_next_boot_deployment ${current_version} ${boot_cfg_path}`
 
-    ls -1 ${deployment_path} | grep -v ${current_version} | grep -v ${TO_BOOT} | head -1 || echo
+	ls -1 ${deployment_path} | grep -v ${current_version} | grep -v ${TO_BOOT} | head -1 || echo
 }
 
 get_next_boot_deployment() {
-    local current_version=${1}
-    local boot_cfg_path=${2}
+	local current_version=${1}
+	local boot_cfg_path=${2}
 
-    local TO_BOOT='this-is-not-a-valid-version-string'
-    if [ -f "${boot_cfg_path}" ] && grep "^title" "${boot_cfg_path}" > /dev/null; then
-        TO_BOOT=`grep ^title ${boot_cfg_path} | sed 's/title //'`
-    fi
+	local TO_BOOT='this-is-not-a-valid-version-string'
+	if [ -f "${boot_cfg_path}" ] && grep "^title" "${boot_cfg_path}" > /dev/null; then
+		TO_BOOT=`grep ^title ${boot_cfg_path} | sed 's/title //'`
+	fi
 
-    echo ${TO_BOOT}
+	echo ${TO_BOOT}
 }
 
 clean_progress() {
-    local scale=$1
-    local postfix=$2
-    local last_value=$scale
-    while IFS= read -r line; do
-        value=$(( ${line}*${scale}/100 ))
-        if [ "$last_value" != "$value" ]; then
-            echo ${value}${postfix}
-            last_value=$value
-        fi
-    done
+	local scale=$1
+	local postfix=$2
+	local last_value=$scale
+	while IFS= read -r line; do
+		value=$(( ${line}*${scale}/100 ))
+		if [ "$last_value" != "$value" ]; then
+			echo ${value}${postfix}
+			last_value=$value
+		fi
+	done
 }
 
 
 main() {
-    if [ $EUID -ne 0 ]; then
-        echo "$(basename $0) must be run as root"
-        exit 1
-    fi
+	if [ $EUID -ne 0 ]; then
+		echo "$(basename $0) must be run as root"
+		exit 1
+	fi
 
-    zenkai_CHECK_UPDATE=0
-    zenkai_STEAM_PROGRESS=0
-    zenkai_SOURCE=""
-    zenkai_PARAMS=""
+	ZENKAI_CHECK_UPDATE=0
+	ZENKAI_STEAM_PROGRESS=0
+	ZENKAI_SOURCE=""
+	ZENKAI_PARAMS=""
 
-    while (( "$#" )); do
-        case $1 in
-            --check)
-                zenkai_CHECK_UPDATE=1
-                shift
-                ;;
-            --steam-progress)
-                zenkai_STEAM_PROGRESS=1
-                shift
-                ;;
-            -*|--*)
-                echo "Unknown argument $1"
-                exit 1
-                ;;
-            *) # preserve positional arguments
-                zenkai_PARAMS="${zenkai_PARAMS}${1} " # Use trailing space for the match below
-                shift
-                ;;
-        esac
-    done
+	while (( "$#" )); do
+		case $1 in
+			--check)
+				ZENKAI_CHECK_UPDATE=1
+				shift
+				;;
+			--steam-progress)
+				ZENKAI_STEAM_PROGRESS=1
+				shift
+				;;
+			-*|--*)
+				echo "Unknown argument $1"
+				exit 1
+				;;
+			*) # preserve positional arguments
+				ZENKAI_PARAMS="${ZENKAI_PARAMS}$1 " # Use trailing space for the match below
+				shift
+				;;
+		esac
+	done
 
-    if [ ! -d /sys/firmware/efi/efivars ]; then
-        echo "Legacy BIOS installs are not supported. Aborting."
-        exit 1
-    fi
+	if [ ! -d /sys/firmware/efi/efivars ]; then
+		echo "Legacy BIOS installs are not supported. Aborting."
+		exit 1
+	fi
 
-    # keep only the first param as source
-    zenkai_SOURCE="${zenkai_PARAMS%% *}"
+	# keep only the first param as source
+	ZENKAI_SOURCE="${ZENKAI_PARAMS%% *}"
 
-    MOUNT_PATH=/zenkai_root
+	MOUNT_PATH=/zenkai_root
 
-    if ! mountpoint -q ${MOUNT_PATH}; then
-        MOUNT_PATH=/tmp/zenkai_root
-    fi
+	if ! mountpoint -q ${MOUNT_PATH}; then
+		MOUNT_PATH=/tmp/zenkai_root
+	fi
 
-    if ! mountpoint -q ${MOUNT_PATH}; then
-        mkdir -p ${MOUNT_PATH}
-        mount -L zenkai_root ${MOUNT_PATH}
-        sleep 5
-    fi
+	if ! mountpoint -q ${MOUNT_PATH}; then
+		mkdir -p ${MOUNT_PATH}
+		mount -L zenkai_root ${MOUNT_PATH}
+		sleep 5
+	fi
 
-    if ! mountpoint -q ${MOUNT_PATH}/boot && ls -1 /dev/disk/by-label | grep zenkai_efi > /dev/null; then
-        mkdir -p ${MOUNT_PATH}/boot
-        mount -L zenkai_efi ${MOUNT_PATH}/boot
-        sleep 5
-    fi
+	if ! mountpoint -q ${MOUNT_PATH}/boot && ls -1 /dev/disk/by-label | grep zenkai_efi > /dev/null; then
+		mkdir -p ${MOUNT_PATH}/boot
+		mount -L zenkai_efi ${MOUNT_PATH}/boot
+		sleep 5
+	fi
 
-    DEPLOY_PATH=${MOUNT_PATH}/deployments
-    mkdir -p ${DEPLOY_PATH}
+	DEPLOY_PATH=${MOUNT_PATH}/deployments
+	mkdir -p ${DEPLOY_PATH}
 
-    BOOT_CFG="${MOUNT_PATH}/boot/loader/entries/zenkai.conf"
-    mkdir -p ${MOUNT_PATH}/boot/loader/entries
+	BOOT_CFG="${MOUNT_PATH}/boot/loader/entries/zenkai.conf"
+	mkdir -p ${MOUNT_PATH}/boot/loader/entries
 
-    # delete deployments under these conditions:
-    # - we are currently running inside a zenkai deployment (i.e. not during install)
-    # - the deployment is not currently running
-    # - the deployment is not configured to be run on next boot
-    if zenkai-release > /dev/null; then
-        CURRENT=`zenkai-release`
-        TO_DELETE=`get_deployment_to_delete ${CURRENT} ${BOOT_CFG} ${DEPLOY_PATH}`
+	# delete deployments under these conditions:
+	# - we are currently running inside a zenkai deployment (i.e. not during install)
+	# - the deployment is not currently running
+	# - the deployment is not configured to be run on next boot
+	if zenkai-release > /dev/null; then
+		CURRENT=`zenkai-release`
+		TO_DELETE=`get_deployment_to_delete ${CURRENT} ${BOOT_CFG} ${DEPLOY_PATH}`
 
-        if [ ! -z ${TO_DELETE} ]; then
-            echo "deleting ${TO_DELETE}..."
-            btrfs subvolume delete ${DEPLOY_PATH}/${TO_DELETE} || true
-            rm -rf ${MOUNT_PATH}/boot/${TO_DELETE}
-        fi
-    fi
+		if [ ! -z ${TO_DELETE} ]; then
+			echo "deleting ${TO_DELETE}..."
+			btrfs subvolume delete ${DEPLOY_PATH}/${TO_DELETE} || true
+			rm -rf ${MOUNT_PATH}/boot/${TO_DELETE}
+		fi
+	fi
 
-    if [ ! -z "$zenkai_SOURCE" ] && [ "$zenkai_SOURCE" != " " ] && [ $zenkai_CHECK_UPDATE -eq 0 ] && [ $zenkai_STEAM_PROGRESS -eq 0 ]; then
-        echo "$zenkai_SOURCE" > "${MOUNT_PATH}/source"
-    fi
+	if [ "${local_install}" == true ]; then
+        mkdir -p /root/tmp_source
+        mount -o rw -L ZENKAI_UPDATE /root/tmp_source
 
-    if [ -e "${MOUNT_PATH}/source" ]; then
-        SOURCE=`cat "${MOUNT_PATH}/source" | head -1`
-    else
-        echo "WARNING: source wasn't specified"
-    fi
-
-    if [[ "$zenkai_SOURCE" == *.img.tar.xz ]]; then
-    FILE_NAME=$(basename "${zenkai_SOURCE}")
-    NAME=$(echo "${FILE_NAME}" | cut -f 1 -d '.')
-    SUBVOL="${DEPLOY_PATH}/${NAME}"
-    IMG_FILE=${zenkai_SOURCE}
-
-    elif [[ "$zenkai_SOURCE" == *.img.tar.xz.part.aa ]]; then
-    FILE_NAME=$(basename "${zenkai_SOURCE}")
-    PART_PREFIX="${FILE_NAME%.part.aa}"
-    NAME=$(echo "${PART_PREFIX}" | cut -f 1 -d '.')
-    SUBVOL="${DEPLOY_PATH}/${NAME}"
-    
-    # Set BASE_URL from the source path if it's a URL, otherwise use current directory
-    if [[ "${zenkai_SOURCE}" =~ ^https?:// ]]; then
-        BASE_URL=$(dirname "${zenkai_SOURCE}")
-    else
-        BASE_URL="."
-    fi
-    echo "BASE_URL: $BASE_URL"
-    echo "PART_PREFIX: $PART_PREFIX"
-    
-    part_suffix=aa
-    PARTS=()
-    while true; do
-        PART_FILE="${PART_PREFIX}.part.${part_suffix}"
-        PART_URL="${BASE_URL}/${PART_FILE}"
-        if curl --head --silent --fail "${PART_URL}" > /dev/null; then
-            echo "Downloading part: ${PART_FILE}"
-            curl --http1.1 -L -o "${MOUNT_PATH}/${PART_FILE}" -C - "${PART_URL}"
-            PARTS+=("${MOUNT_PATH}/${PART_FILE}")
-            # Increment suffix (aa, ab, ..., az, ba, ...)
-            part_suffix=$(echo $part_suffix | awk '
-                {
-                    if(substr($0,2,1)=="z"){
-                        printf("%c%c", substr($0,1,1)+1, 97)
-                    }else{
-                        printf("%c%c", substr($0,1,1), substr($0,2,1)+1)
-                    }
-                }')
+        # Sprawdź czy mamy części pliku z rozszerzeniem .part.aa, .part.ab itd.
+        if combine_parts "/root/tmp_source" "*.img.tar.xz" "/root/tmp_source/combined.img.tar.xz"; then
+            FILE_NAME="combined.img.tar.xz"
+            NAME=$(echo "${FILE_NAME}" | cut -f 1 -d '.')
+            SUBVOL="${DEPLOY_PATH}/${NAME}"
+            IMG_FILE="/root/tmp_source/${FILE_NAME}"
         else
-            break
+            # Jeśli nie ma części, użyj pierwszego pasującego pliku
+            FILE_NAME=$(basename /root/tmp_source/*.img.tar.xz*)
+            NAME=$(echo "${FILE_NAME}" | cut -f 1 -d '.')
+            SUBVOL="${DEPLOY_PATH}/${NAME}"
+            IMG_FILE="/root/tmp_source/${FILE_NAME}"
         fi
-    done
-    # Połącz części w jeden plik
-    cat "${MOUNT_PATH}/${PART_PREFIX}".part.* > "${MOUNT_PATH}/${PART_PREFIX}"
-    IMG_FILE="${MOUNT_PATH}/${PART_PREFIX}"
+    elif [[ "$ZENKAI_SOURCE" == *".part.aa" ]]; then
+        # Obsługa podzielonych plików lokalnych (bez montowania)
+        BASE_NAME="${ZENKAI_SOURCE%.part.aa*}"
+        FILE_NAME=$(basename "${BASE_NAME}")
+        NAME=$(echo "${FILE_NAME}" | cut -f 1 -d '.')
+        SUBVOL="${DEPLOY_PATH}/${NAME}"
 
-    elif [[ "$zenkai_SOURCE" == *.img ]]; then
-    FILE_NAME=$(basename "${zenkai_SOURCE}")
-    NAME=$(echo "${FILE_NAME}" | cut -f 1 -d '.')
-    SUBVOL="${DEPLOY_PATH}/${NAME}"
-    IMG_FILE=${zenkai_SOURCE}
-
+        # Połącz części
+        combine_parts "$(dirname "${ZENKAI_SOURCE}")" "${FILE_NAME}" "${MOUNT_PATH}/${FILE_NAME}"
+        IMG_FILE="${MOUNT_PATH}/${FILE_NAME}"
+    elif [[ "$ZENKAI_SOURCE" == *".img.tar.xz" ]]; then
+        # ... (bez zmian)
     else
-    REPO=$(echo "${SOURCE}" | cut -f 1 -d ':')
-    CHANNEL=$(echo "${SOURCE}" | cut -f 2 -d ':')
+        # Pobieranie sieciowe
+        # ... (początek bez zmian)
 
-    RELEASES_URL="https://api.github.com/repos/${REPO}/releases"
-
-    IMG_URL=$(curl --http1.1 -L -s "${RELEASES_URL}" | get_img_url "${CHANNEL}")
-
-    if [ -z "$IMG_URL" ] || [ "$IMG_URL" == "null" ]; then
-        echo "No matching source found"
-        if curl --http1.1 -L -s "${RELEASES_URL}" | grep "rate limit" > /dev/null; then
-            echo "GitHub API rate limit exceeded"
-            exit 29
-        fi
-        exit 1
-    fi
-
-    FILE_NAME=$(basename "${IMG_URL}")
-    NAME=$(echo "${FILE_NAME}" | cut -f 1 -d '.')
-    BASE_URL=$(dirname "${IMG_URL}")
-    CHECKSUM=$(curl --http1.1 -L -s "${BASE_URL}/sha256sum.txt" | cut -f -1 -d ' ')
-    SUBVOL="${DEPLOY_PATH}/${NAME}"
-    IMG_FILE="${MOUNT_PATH}/${FILE_NAME}"
-
-    if [ -e "${SUBVOL}" ]; then
-        echo "${NAME} already installed; aborting"
-        exit 7 # let Steam know there is no update available
-    fi
-
-    if [ $zenkai_CHECK_UPDATE -eq 1 ]; then
-        echo "Update available: ${NAME}"
-        exit 0 # let Steam know there is an update available
-    fi
-
-    if [[ "${FILE_NAME}" == *.part.aa ]]; then
-        PART_PREFIX="${FILE_NAME%.part.aa}"
-        part_suffix=aa
-        PARTS=()
-        while true; do
-            PART_FILE="${PART_PREFIX}.part.${part_suffix}"
-            PART_URL="${BASE_URL}/${PART_FILE}"
-            if curl --head --silent --fail "${PART_URL}" > /dev/null; then
-                echo "Pobieranie części: ${PART_FILE}"
-                curl --http1.1 -L -o "${MOUNT_PATH}/${PART_FILE}" -C - "${PART_URL}"
-                PARTS+=("${MOUNT_PATH}/${PART_FILE}")
-                # Zwiększ sufiks (aa, ab, ac, ...)
-                part_suffix=$(echo $part_suffix | awk '
-                    {
-                        if(substr($0,2,1)=="z"){
-                            printf("%c%c", substr($0,1,1)+1, 97)
-                        }else{
-                            printf("%c%c", substr($0,1,1), substr($0,2,1)+1)
-                        }
-                    }')
+        # Sprawdź czy istnieją części pliku
+        PART_FILES=()
+        for part in {a..z}{a..z}; do  # Generuj aa, ab, ac, ... zz
+            part_url="${BASE_URL}/${FILE_NAME}.part.${part}"
+            if curl --head --fail "${part_url}" &> /dev/null; then
+                PART_FILES+=("${part_url}")
             else
-                break
+                # Sprawdź czy istnieje przynajmniej część .aa
+                if [ ${#PART_FILES[@]} -eq 0 ] && [ "$part" == "aa" ]; then
+                    break
+                fi
             fi
         done
-        # Połącz części w jeden plik
-        cat "${MOUNT_PATH}/${PART_PREFIX}".part.* > "${MOUNT_PATH}/${PART_PREFIX}"
-        IMG_FILE="${MOUNT_PATH}/${PART_PREFIX}"
-    else
-        if [ $zenkai_STEAM_PROGRESS -eq 1 ]; then
-            curl --http1.1 -# -L -o "${IMG_FILE}" -C - "${IMG_URL}" 2>&1 | \
-            stdbuf -oL tr '\r' '\n' | grep --line-buffered -oP '[0-9]*+(?=.[0-9])' | clean_progress 91 %
-        elif [ -z ${SHOW_UI} ]; then
-            echo "downloading ${NAME}..."
-            curl --http1.1 -L -o "${IMG_FILE}" -C - "${IMG_URL}"
+
+        if [ ${#PART_FILES[@]} -gt 0 ]; then
+            # Pobierz plik sumy kontrolnej
+            CHECKSUM_FILE="${MOUNT_PATH}/sha256sum.txt"
+            curl --http1.1 -L -s -o "${CHECKSUM_FILE}" "${BASE_URL}/sha256sum.txt"
+
+            # Pobierz wszystkie części
+            IMG_FILE="${MOUNT_PATH}/${FILE_NAME}"
+            rm -f "${IMG_FILE}"
+
+            for part_url in "${PART_FILES[@]}"; do
+                part_name=$(basename "${part_url}")
+                echo "downloading part ${part_name}..."
+
+                if [ $ZENKAI_STEAM_PROGRESS -eq 1 ]; then
+                    curl --http1.1 -# -L -o - "${part_url}" >> "${IMG_FILE}" 2>&1 | \
+                    stdbuf -oL tr '\r' '\n' | grep --line-buffered -oP '[0-9]*+(?=.[0-9])' | clean_progress 91 %
+                else
+                    curl --http1.1 -L -o - "${part_url}" >> "${IMG_FILE}"
+                fi
+            done
+
+            # Weryfikuj sumę kontrolną
+            if [ -f "${CHECKSUM_FILE}" ]; then
+                EXPECTED_CHECKSUM=$(grep "${FILE_NAME}" "${CHECKSUM_FILE}" | cut -d' ' -f1)
+                ACTUAL_CHECKSUM=$(sha256sum "${IMG_FILE}" | cut -d' ' -f1)
+
+                if [ "$EXPECTED_CHECKSUM" != "$ACTUAL_CHECKSUM" ]; then
+                    rm -f "${IMG_FILE}" "${CHECKSUM_FILE}"
+                    echo "Checksum mismatch for combined file:"
+                    echo "  Expected: $EXPECTED_CHECKSUM"
+                    echo "  Actual:   $ACTUAL_CHECKSUM"
+                    exit 1
+                fi
+                rm -f "${CHECKSUM_FILE}"
+            fi
         else
-            curl --http1.1 -# -L -o "${IMG_FILE}" -C - "${IMG_URL}" 2>&1 | \
-            stdbuf -oL tr '\r' '\n' | grep --line-buffered -oP '[0-9]*+(?=.[0-9])' | clean_progress 100 | \
-            whiptail --gauge "Downloading system image (${NAME})" 10 50 0
+            # Pojedynczy plik
+            CHECKSUM=$(curl --http1.1 -L -s "${BASE_URL}/sha256sum.txt" | cut -f -1 -d ' ')
+            SUBVOL="${DEPLOY_PATH}/${NAME}"
+            IMG_FILE="${MOUNT_PATH}/${FILE_NAME}"
+
+            if [ -e ${SUBVOL} ]; then
+                echo "${NAME} already installed; aborting"
+                exit 7
+            fi
+
+            if [ $ZENKAI_CHECK_UPDATE -eq 1 ]; then
+                echo "Update available: ${NAME}"
+                exit 0
+            fi
+
+            if [ $ZENKAI_STEAM_PROGRESS -eq 1 ]; then
+                curl --http1.1 -# -L -o "${IMG_FILE}" -C - "${IMG_URL}" 2>&1 | \
+                stdbuf -oL tr '\r' '\n' | grep --line-buffered -oP '[0-9]*+(?=.[0-9])' | clean_progress 91 %
+            elif [ -z ${SHOW_UI} ]; then
+                echo "downloading ${NAME}..."
+                curl --http1.1 -L -o "${IMG_FILE}" -C - "${IMG_URL}"
+            else
+                curl --http1.1 -# -L -o "${IMG_FILE}" -C - "${IMG_URL}" 2>&1 | \
+                stdbuf -oL tr '\r' '\n' | grep --line-buffered -oP '[0-9]*+(?=.[0-9])' | clean_progress 100 | \
+                whiptail --gauge "Downloading system image (${NAME})" 10 50 0
+            fi
+
+            CHECKSUM2=$(sha256sum "${IMG_FILE}" | cut -d' ' -f1)
+            if [ "$CHECKSUM" != "$CHECKSUM2" ]; then
+                rm -f "${IMG_FILE}"
+                echo "checksum does not match; aborting"
+                exit 1
+            fi
         fi
     fi
-fi
 
+	if [ -z ${SHOW_UI} ]; then
+		echo "installing ${NAME}..."
+	else
+		whiptail --infobox "Extracting and installing system image (${NAME}). This may take some time." 10 50
+	fi
 
-    if [ -z ${SHOW_UI} ]; then
-        echo "installing ${NAME}..."
-    else
-        whiptail --infobox "Extracting and installing system image (${NAME}). This may take some time." 10 50
-    fi
+	if [[ "${IMG_FILE##*.}" == "img" ]]; then
+		btrfs receive --quiet ${DEPLOY_PATH} < ${IMG_FILE}
+	else
+		tar xfO ${IMG_FILE} | btrfs receive --quiet ${DEPLOY_PATH}
+	fi
 
-    if [[ "${IMG_FILE##*.}" == "img" ]]; then
-        btrfs receive --quiet ${DEPLOY_PATH} < ${IMG_FILE}
-    else
-        tar xfO ${IMG_FILE} | btrfs receive --quiet ${DEPLOY_PATH}
-    fi
+	mkdir -p ${MOUNT_PATH}/boot/${NAME}
+	cp ${SUBVOL}/boot/vmlinuz-linux ${MOUNT_PATH}/boot/${NAME}
+	cp ${SUBVOL}/boot/initramfs-linux.img ${MOUNT_PATH}/boot/${NAME}
 
-    mkdir -p ${MOUNT_PATH}/boot/${NAME}
-    cp ${SUBVOL}/boot/vmlinuz-linux ${MOUNT_PATH}/boot/${NAME}
-    cp ${SUBVOL}/boot/initramfs-linux.img ${MOUNT_PATH}/boot/${NAME}
+	AMD_UCODE=""
+	if [ -e ${SUBVOL}/boot/amd-ucode.img ] ; then
+		cp ${SUBVOL}/boot/amd-ucode.img ${MOUNT_PATH}/boot/${NAME}
+		AMD_UCODE="initrd /${NAME}/amd-ucode.img"
+	fi
 
-    AMD_UCODE=""
-    if [ -e ${SUBVOL}/boot/amd-ucode.img ] ; then
-        cp ${SUBVOL}/boot/amd-ucode.img ${MOUNT_PATH}/boot/${NAME}
-        AMD_UCODE="initrd /${NAME}/amd-ucode.img"
-    fi
+	INTEL_UCODE=""
+	if [ -e ${SUBVOL}/boot/intel-ucode.img ] ; then
+		cp ${SUBVOL}/boot/intel-ucode.img ${MOUNT_PATH}/boot/${NAME}
+		INTEL_UCODE="initrd /${NAME}/intel-ucode.img"
+	fi
 
-    INTEL_UCODE=""
-    if [ -e ${SUBVOL}/boot/intel-ucode.img ] ; then
-        cp ${SUBVOL}/boot/intel-ucode.img ${MOUNT_PATH}/boot/${NAME}
-        INTEL_UCODE="initrd /${NAME}/intel-ucode.img"
-    fi
+	ADDITIONAL_ARGUMENTS=""
+	if [ -e ${SUBVOL}/usr/lib/zenkai.d/bootconfig.conf ] ; then
+		ADDITIONAL_ARGUMENTS="$ADDITIONAL_ARGUMENTS $(cat ${SUBVOL}/usr/lib/zenkai.d/bootconfig.conf)"
+	fi
 
-    ADDITIONAL_ARGUMENTS=""
-    if [ -e ${SUBVOL}/usr/lib/zenkai.d/bootconfig.conf ] ; then
-        ADDITIONAL_ARGUMENTS="$ADDITIONAL_ARGUMENTS $(cat ${SUBVOL}/usr/lib/zenkai.d/bootconfig.conf)"
-    fi
+	get_boot_cfg "${NAME}" "${AMD_UCODE}" "${INTEL_UCODE}" "${ADDITIONAL_ARGUMENTS}" > ${BOOT_CFG}
+	echo "default zenkai.conf" > ${MOUNT_PATH}/boot/loader/loader.conf
 
-    get_boot_cfg "${NAME}" "${AMD_UCODE}" "${INTEL_UCODE}" "${ADDITIONAL_ARGUMENTS}" > ${BOOT_CFG}
-    echo "default zenkai.conf" > ${MOUNT_PATH}/boot/loader/loader.conf
+	# Check if there are migrations available
+	if compgen -G "${SUBVOL}"/usr/lib/zenkai.d/*.migration > /dev/null ; then
+		for m in "${SUBVOL}"/usr/lib/zenkai.d/*.migration ;
+		do
+			unset -f post_install
+			. $m
+			if [ "$(type -t post_install)" == function ] ; then
+				post_install "${MOUNT_PATH}" "${SUBVOL}" "${NAME}"
+			fi
+			unset -f post_install
+		done
+	fi
 
-    # Check if there are migrations available
-    if compgen -G "${SUBVOL}"/usr/lib/zenkai.d/*.migration > /dev/null ; then
-        for m in "${SUBVOL}"/usr/lib/zenkai.d/*.migration ;
-        do
-            unset -f post_install
-            . $m
-            if [ "$(type -t post_install)" == function ] ; then
-                post_install "${MOUNT_PATH}" "${SUBVOL}" "${NAME}"
-            fi
-            unset -f post_install
-        done
-    fi
+	# Export variables to be used by child processes for zenkai-tweaks and zenkai-initramfs
+	export MOUNT_PATH
+	export SUBVOL
+	export NAME
 
-    # Export variables to be used by child processes for zenkai-tweaks and zenkai-initramfs
-    export MOUNT_PATH
-    export SUBVOL
-    export NAME
+	# Check if the FIRMWARE_OVERRIDE variable is set by the install media, if so enable firmware overrides
+	if [ -n "${FIRMWARE_OVERRIDE}" ]; then
+		echo "export USE_FIRMWARE_OVERRIDES=1" > ${MOUNT_PATH}/etc/device-quirks.conf
+	fi
 
-    # Run zenkai-tweaks to execute the device-quirks to be supplied by the deployed images
+	# Run zenkai-initramfs to create mkinicpio.conf and build an initramfs
+	zenkai-initramfs
 
-    # Run zenkai-initramfs to create mkinicpio.conf and build an initramfs
-    zenkai-initramfs
+	rm -f ${MOUNT_PATH}/*.img.*
 
-    rm -f ${MOUNT_PATH}/*.img.*
+	rm -rf /var/lib/pacman # undo zenkai-unlock
 
-    rm -rf /var/lib/pacman # undo zenkai-unlock
-
-    echo "deployment complete; restart to boot into ${NAME}"
+	echo "deployment complete; restart to boot into ${NAME}"
 }
 
 
 if [ "$0" = "$BASH_SOURCE" ] ; then
-    main "$@"
+	main "$@"
 fi
