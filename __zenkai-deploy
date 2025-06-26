@@ -317,8 +317,8 @@ main() {
         # Capture API response for debugging
         api_response=$(curl --http1.1 -L -s "${RELEASES_URL}")
 
-        # Check for API errors
-        if echo "$api_response" | jq -e 'has("message")' >/dev/null; then
+        # POPRAWIONE: Sprawdzanie błędów API
+        if echo "$api_response" | jq -e 'type == "object" and has("message")' >/dev/null; then
             error_message=$(echo "$api_response" | jq -r '.message')
             echo "GitHub API error: $error_message"
             if [[ "$error_message" == *"rate limit"* ]]; then
