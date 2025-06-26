@@ -80,10 +80,9 @@ get_img_url() {
         fi
     fi
 
-    # Handle split files - POPRAWIONE: zwracanie wszystkich części
+    # Handle split files
     if [[ "$result" == *".part.aa"* ]]; then
         release_id=$(echo "$releases_json" | jq -r '.[0].id')
-        # Pobierz wszystkie części, nie tylko pierwszą
         parts=$(curl -s "https://api.github.com/repos/${REPO}/releases/${release_id}/assets" | \
                 jq -r '.[] | select(.name | test(".*part.a[a-z]")) | .browser_download_url' | sort)
         echo $parts
@@ -103,7 +102,7 @@ linux /${version}/vmlinuz-linux
 ${amd_ucode}
 ${intel_ucode}
 initrd /${version}/initramfs-linux.img
-options root=LABEL=zenkai_root rw rootflags=subvol=deployments/${version} quiet splash loglevel=3 rd.systemd.show_status=auto rd.udev.log_priority=3 ${additional_arguments}"
+options root=LABEL=zenkai_root rw rootflags=subvol=deployments/${version}loglevel=3 rd.systemd.show_status=auto rd.udev.log_priority=3 ${additional_arguments}"
 }
 
 get_deployment_to_delete() {
@@ -154,21 +153,36 @@ download_parts() {
     BASE_NAME=$(basename "${parts[0]%.part.aa*}")
     PART_FILES=()
 
+    # Get total number of parts
+    total_parts=${#parts[@]}
+    part_num=0
+
     # Download each part
     for part_url in "${parts[@]}"; do
+        part_num=$((part_num+1))
         part_name=$(basename "$part_url")
         PART_FILES+=("${mount_path}/${part_name}")
 
         if [ $steam_progress -eq 1 ]; then
+            # Steam progress mode
             curl --http1.1 -# -L -o "${mount_path}/${part_name}" -C - "${part_url}" 2>&1 | \
             stdbuf -oL tr '\r' '\n' | grep --line-buffered -oP '[0-9]*+(?=.[0-9])' | clean_progress 91 %
         elif [ -z "$show_ui" ]; then
-            echo "downloading ${part_name}..."
+            # Text mode
+            echo "downloading ${part_name} (part $part_num/$total_parts)..."
             curl --http1.1 -L -o "${mount_path}/${part_name}" -C - "${part_url}"
         else
-            curl --http1.1 -# -L -o "${mount_path}/${part_name}" -C - "${part_url}" 2>&1 | \
-            stdbuf -oL tr '\r' '\n' | grep --line-buffered -oP '[0-9]*+(?=.[0-9])' | clean_progress 100 | \
-            whiptail --gauge "Downloading system image part (${part_name})" 10 50 0
+            # UI mode - show progress for each part
+            {
+                curl --http1.1 -# -L -o "${mount_path}/${part_name}" -C - "${part_url}" 2>&1 | \
+                stdbuf -oL tr '\r' '\n' | grep --line-buffered -oP '[0-9]*+(?=.[0-9])' | \
+                while read -r progress; do
+                    # Calculate overall progress across all parts
+                    overall_progress=$(( (part_num - 1) * 100 + progress ))
+                    overall_percent=$(( overall_progress / total_parts ))
+                    echo "$overall_percent"
+                done
+            } | whiptail --gauge "Downloading system image part $part_num/$total_parts (${part_name})" 10 50 0
         fi
     done
 
@@ -397,7 +411,7 @@ main() {
     if [[ "${IMG_FILE##*.}" == "img" ]]; then
         btrfs receive --quiet ${DEPLOY_PATH} < "${IMG_FILE}"
     else
-        tar xfO ${MOUNT_PATH}/fragos*.img.tar.xz | btrfs receive --quiet ${DEPLOY_PATH}
+        tar xfO "${IMG_FILE}" | btrfs receive --quiet ${DEPLOY_PATH}
     fi
 
     mkdir -p "${MOUNT_PATH}/boot/${NAME}"
@@ -422,7 +436,12 @@ main() {
     fi
 
     get_boot_cfg "${NAME}" "${AMD_UCODE}" "${INTEL_UCODE}" "${ADDITIONAL_ARGUMENTS}" > "${BOOT_CFG}"
-    echo "default zenkai.conf" > "${MOUNT_PATH}/boot/loader/loader.conf"
+    cat > "${MOUNT_PATH}/boot/loader/loader.conf" <<EOF
+default zenkai.conf
+timeout 5
+beep off
+EOF
+
 
     # Check if there are migrations available
     if compgen -G "${SUBVOL}/usr/lib/zenkai.d/*.migration" > /dev/null ; then
