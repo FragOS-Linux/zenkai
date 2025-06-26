@@ -3,6 +3,7 @@
 set -e
 set -o pipefail
 
+# Funkcja do łączenia części plików
 combine_parts() {
     local source_dir=$1
     local file_pattern=$2
@@ -248,124 +249,171 @@ main() {
 		fi
 	fi
 
+	if [ ! -z "$ZENKAI_SOURCE" ] && [ "$ZENKAI_SOURCE" != " " ] && [ $ZENKAI_CHECK_UPDATE -eq 0 ] && [ $ZENKAI_STEAM_PROGRESS -eq 0 ]; then
+		echo "$ZENKAI_SOURCE" > "${MOUNT_PATH}/source"
+	fi
+
+	if [ -e "${MOUNT_PATH}/source" ]; then
+		SOURCE=`cat "${MOUNT_PATH}/source" | head -1`
+	else
+		echo "WARNING: source wasn't specified"
+	fi
+
+	# Sprawdź czy mamy do czynienia z instalacją lokalną
+	if [[ "$ZENKAI_SOURCE" == /dev/* || "$ZENKAI_SOURCE" == LABEL=* ]]; then
+		local_install=true
+	else
+		local_install=false
+	fi
+
 	if [ "${local_install}" == true ]; then
-        mkdir -p /root/tmp_source
-        mount -o rw -L ZENKAI_UPDATE /root/tmp_source
+		mkdir -p /root/tmp_source
+		mount -o rw -L ZENKAI_UPDATE /root/tmp_source
 
-        # Sprawdź czy mamy części pliku z rozszerzeniem .part.aa, .part.ab itd.
-        if combine_parts "/root/tmp_source" "*.img.tar.xz" "/root/tmp_source/combined.img.tar.xz"; then
-            FILE_NAME="combined.img.tar.xz"
-            NAME=$(echo "${FILE_NAME}" | cut -f 1 -d '.')
-            SUBVOL="${DEPLOY_PATH}/${NAME}"
-            IMG_FILE="/root/tmp_source/${FILE_NAME}"
-        else
-            # Jeśli nie ma części, użyj pierwszego pasującego pliku
-            FILE_NAME=$(basename /root/tmp_source/*.img.tar.xz*)
-            NAME=$(echo "${FILE_NAME}" | cut -f 1 -d '.')
-            SUBVOL="${DEPLOY_PATH}/${NAME}"
-            IMG_FILE="/root/tmp_source/${FILE_NAME}"
-        fi
-    elif [[ "$ZENKAI_SOURCE" == *".part.aa" ]]; then
-        # Obsługa podzielonych plików lokalnych (bez montowania)
-        BASE_NAME="${ZENKAI_SOURCE%.part.aa*}"
-        FILE_NAME=$(basename "${BASE_NAME}")
-        NAME=$(echo "${FILE_NAME}" | cut -f 1 -d '.')
-        SUBVOL="${DEPLOY_PATH}/${NAME}"
+		# Sprawdź czy mamy części pliku z rozszerzeniem .part.aa, .part.ab itd.
+		if combine_parts "/root/tmp_source" "*.img.tar.xz" "/root/tmp_source/combined.img.tar.xz"; then
+			FILE_NAME="combined.img.tar.xz"
+			NAME=$(echo "${FILE_NAME}" | cut -f 1 -d '.')
+			SUBVOL="${DEPLOY_PATH}/${NAME}"
+			IMG_FILE="/root/tmp_source/${FILE_NAME}"
+		else
+			# Jeśli nie ma części, użyj pierwszego pasującego pliku
+			FILE_NAME=$(basename /root/tmp_source/*.img.tar.xz*)
+			NAME=$(echo "${FILE_NAME}" | cut -f 1 -d '.')
+			SUBVOL="${DEPLOY_PATH}/${NAME}"
+			IMG_FILE="/root/tmp_source/${FILE_NAME}"
+		fi
+	elif [[ "$ZENKAI_SOURCE" == *".part.aa" ]]; then
+		# Obsługa podzielonych plików lokalnych (bez montowania)
+		BASE_NAME="${ZENKAI_SOURCE%.part.aa*}"
+		FILE_NAME=$(basename "${BASE_NAME}")
+		NAME=$(echo "${FILE_NAME}" | cut -f 1 -d '.')
+		SUBVOL="${DEPLOY_PATH}/${NAME}"
 
-        # Połącz części
-        combine_parts "$(dirname "${ZENKAI_SOURCE}")" "${FILE_NAME}" "${MOUNT_PATH}/${FILE_NAME}"
-        IMG_FILE="${MOUNT_PATH}/${FILE_NAME}"
-    elif [[ "$ZENKAI_SOURCE" == *".img.tar.xz" ]]; then
-        # ... (bez zmian)
-    else
-        # Pobieranie sieciowe
-        # ... (początek bez zmian)
+		# Połącz części
+		combine_parts "$(dirname "${ZENKAI_SOURCE}")" "${FILE_NAME}" "${MOUNT_PATH}/${FILE_NAME}"
+		IMG_FILE="${MOUNT_PATH}/${FILE_NAME}"
+	elif [[ "$ZENKAI_SOURCE" == *".img.tar.xz" ]]; then
+		FILE_NAME=$(basename ${ZENKAI_SOURCE})
+		NAME=$(echo "${FILE_NAME}" | cut -f 1 -d '.')
+		SUBVOL="${DEPLOY_PATH}/${NAME}"
+		IMG_FILE=${ZENKAI_SOURCE}
+	elif [[ "$ZENKAI_SOURCE" == *".img" ]]; then
+		FILE_NAME=$(basename ${ZENKAI_SOURCE})
+		NAME=$(echo "${FILE_NAME}" | cut -f 1 -d '.')
+		SUBVOL="${DEPLOY_PATH}/${NAME}"
+		IMG_FILE=${ZENKAI_SOURCE}
+	else
+		# Pobieranie sieciowe
+		REPO=$(echo "${SOURCE}" | cut -f 1 -d ':')
+		CHANNEL=$(echo "${SOURCE}" | cut -f 2 -d ':')
 
-        # Sprawdź czy istnieją części pliku
-        PART_FILES=()
-        for part in {a..z}{a..z}; do  # Generuj aa, ab, ac, ... zz
-            part_url="${BASE_URL}/${FILE_NAME}.part.${part}"
-            if curl --head --fail "${part_url}" &> /dev/null; then
-                PART_FILES+=("${part_url}")
-            else
-                # Sprawdź czy istnieje przynajmniej część .aa
-                if [ ${#PART_FILES[@]} -eq 0 ] && [ "$part" == "aa" ]; then
-                    break
-                fi
-            fi
-        done
+		RELEASES_URL="https://api.github.com/repos/${REPO}/releases"
 
-        if [ ${#PART_FILES[@]} -gt 0 ]; then
-            # Pobierz plik sumy kontrolnej
-            CHECKSUM_FILE="${MOUNT_PATH}/sha256sum.txt"
-            curl --http1.1 -L -s -o "${CHECKSUM_FILE}" "${BASE_URL}/sha256sum.txt"
+		IMG_URL=$(curl --http1.1 -L -s "${RELEASES_URL}" | get_img_url "${CHANNEL}")
 
-            # Pobierz wszystkie części
-            IMG_FILE="${MOUNT_PATH}/${FILE_NAME}"
-            rm -f "${IMG_FILE}"
+		if [ -z "$IMG_URL" ] || [ "$IMG_URL" == "null" ]; then
+			echo "No matching source found"
+			if curl --http1.1 -L -s "${RELEASES_URL}" | grep "rate limit" > /dev/null; then
+				echo "GitHub API rate limit exceeded"
+				exit 29
+			fi
+			exit 1
+		fi
 
-            for part_url in "${PART_FILES[@]}"; do
-                part_name=$(basename "${part_url}")
-                echo "downloading part ${part_name}..."
+		FILE_NAME=$(basename ${IMG_URL})
+		NAME=$(echo "${FILE_NAME}" | cut -f 1 -d '.')
+		BASE_URL=$(dirname "${IMG_URL}")
 
-                if [ $ZENKAI_STEAM_PROGRESS -eq 1 ]; then
-                    curl --http1.1 -# -L -o - "${part_url}" >> "${IMG_FILE}" 2>&1 | \
-                    stdbuf -oL tr '\r' '\n' | grep --line-buffered -oP '[0-9]*+(?=.[0-9])' | clean_progress 91 %
-                else
-                    curl --http1.1 -L -o - "${part_url}" >> "${IMG_FILE}"
-                fi
-            done
+		# Sprawdź czy istnieją części pliku
+		PART_FILES=()
+		for part in {a..z}{a..z}; do  # Generuj aa, ab, ac, ... zz
+			part_url="${BASE_URL}/${FILE_NAME}.part.${part}"
+			if curl --head --fail "${part_url}" &> /dev/null; then
+				PART_FILES+=("${part_url}")
+			else
+				# Sprawdź czy istnieje przynajmniej część .aa
+				if [ ${#PART_FILES[@]} -eq 0 ] && [ "$part" == "aa" ]; then
+					break
+				fi
+			fi
+		done
 
-            # Weryfikuj sumę kontrolną
-            if [ -f "${CHECKSUM_FILE}" ]; then
-                EXPECTED_CHECKSUM=$(grep "${FILE_NAME}" "${CHECKSUM_FILE}" | cut -d' ' -f1)
-                ACTUAL_CHECKSUM=$(sha256sum "${IMG_FILE}" | cut -d' ' -f1)
+		if [ ${#PART_FILES[@]} -gt 0 ]; then
+			# Pobierz plik sumy kontrolnej
+			CHECKSUM_FILE="${MOUNT_PATH}/sha256sum.txt"
+			curl --http1.1 -L -s -o "${CHECKSUM_FILE}" "${BASE_URL}/sha256sum.txt"
 
-                if [ "$EXPECTED_CHECKSUM" != "$ACTUAL_CHECKSUM" ]; then
-                    rm -f "${IMG_FILE}" "${CHECKSUM_FILE}"
-                    echo "Checksum mismatch for combined file:"
-                    echo "  Expected: $EXPECTED_CHECKSUM"
-                    echo "  Actual:   $ACTUAL_CHECKSUM"
-                    exit 1
-                fi
-                rm -f "${CHECKSUM_FILE}"
-            fi
-        else
-            # Pojedynczy plik
-            CHECKSUM=$(curl --http1.1 -L -s "${BASE_URL}/sha256sum.txt" | cut -f -1 -d ' ')
-            SUBVOL="${DEPLOY_PATH}/${NAME}"
-            IMG_FILE="${MOUNT_PATH}/${FILE_NAME}"
+			# Pobierz wszystkie części
+			IMG_FILE="${MOUNT_PATH}/${FILE_NAME}"
+			rm -f "${IMG_FILE}"
 
-            if [ -e ${SUBVOL} ]; then
-                echo "${NAME} already installed; aborting"
-                exit 7
-            fi
+			for part_url in "${PART_FILES[@]}"; do
+				part_name=$(basename "${part_url}")
+				if [ $ZENKAI_STEAM_PROGRESS -eq 1 ]; then
+					echo "downloading part ${part_name} with progress..."
+					curl --http1.1 -# -L -o - "${part_url}" >> "${IMG_FILE}" 2>&1 | \
+					stdbuf -oL tr '\r' '\n' | grep --line-buffered -oP '[0-9]*+(?=.[0-9])' | clean_progress 91 %
+				else
+					echo "downloading part ${part_name}..."
+					curl --http1.1 -L -o - "${part_url}" >> "${IMG_FILE}"
+				fi
+			done
 
-            if [ $ZENKAI_CHECK_UPDATE -eq 1 ]; then
-                echo "Update available: ${NAME}"
-                exit 0
-            fi
+			# Weryfikuj sumę kontrolną
+			if [ -f "${CHECKSUM_FILE}" ]; then
+				EXPECTED_CHECKSUM=$(grep "${FILE_NAME}" "${CHECKSUM_FILE}" | cut -d' ' -f1)
+				ACTUAL_CHECKSUM=$(sha256sum "${IMG_FILE}" | cut -d' ' -f1)
 
-            if [ $ZENKAI_STEAM_PROGRESS -eq 1 ]; then
-                curl --http1.1 -# -L -o "${IMG_FILE}" -C - "${IMG_URL}" 2>&1 | \
-                stdbuf -oL tr '\r' '\n' | grep --line-buffered -oP '[0-9]*+(?=.[0-9])' | clean_progress 91 %
-            elif [ -z ${SHOW_UI} ]; then
-                echo "downloading ${NAME}..."
-                curl --http1.1 -L -o "${IMG_FILE}" -C - "${IMG_URL}"
-            else
-                curl --http1.1 -# -L -o "${IMG_FILE}" -C - "${IMG_URL}" 2>&1 | \
-                stdbuf -oL tr '\r' '\n' | grep --line-buffered -oP '[0-9]*+(?=.[0-9])' | clean_progress 100 | \
-                whiptail --gauge "Downloading system image (${NAME})" 10 50 0
-            fi
+				if [ "$EXPECTED_CHECKSUM" != "$ACTUAL_CHECKSUM" ]; then
+					rm -f "${IMG_FILE}" "${CHECKSUM_FILE}"
+					echo "Checksum mismatch for combined file:"
+					echo "  Expected: $EXPECTED_CHECKSUM"
+					echo "  Actual:   $ACTUAL_CHECKSUM"
+					exit 1
+				fi
+				rm -f "${CHECKSUM_FILE}"
+			else
+				echo "WARNING: No checksum file found, skipping verification"
+			fi
+		else
+			# Pojedynczy plik
+			CHECKSUM=$(curl --http1.1 -L -s "${BASE_URL}/sha256sum.txt" | grep "${FILE_NAME}" | cut -d' ' -f1)
+			SUBVOL="${DEPLOY_PATH}/${NAME}"
+			IMG_FILE="${MOUNT_PATH}/${FILE_NAME}"
 
-            CHECKSUM2=$(sha256sum "${IMG_FILE}" | cut -d' ' -f1)
-            if [ "$CHECKSUM" != "$CHECKSUM2" ]; then
-                rm -f "${IMG_FILE}"
-                echo "checksum does not match; aborting"
-                exit 1
-            fi
-        fi
-    fi
+			if [ -e ${SUBVOL} ]; then
+				echo "${NAME} already installed; aborting"
+				exit 7 # let Steam know there is no update available
+			fi
+
+			if [ $ZENKAI_CHECK_UPDATE -eq 1 ]; then
+				echo "Update available: ${NAME}"
+				exit 0 # let Steam know there is an update available
+			fi
+
+			if [ $ZENKAI_STEAM_PROGRESS -eq 1 ]; then
+				curl --http1.1 -# -L -o "${IMG_FILE}" -C - "${IMG_URL}" 2>&1 | \
+				stdbuf -oL tr '\r' '\n' | grep --line-buffered -oP '[0-9]*+(?=.[0-9])' | clean_progress 91 %
+			elif [ -z ${SHOW_UI} ]; then
+				echo "downloading ${NAME}..."
+				curl --http1.1 -L -o "${IMG_FILE}" -C - "${IMG_URL}"
+			else
+				curl --http1.1 -# -L -o "${IMG_FILE}" -C - "${IMG_URL}" 2>&1 | \
+				stdbuf -oL tr '\r' '\n' | grep --line-buffered -oP '[0-9]*+(?=.[0-9])' | clean_progress 100 | \
+				whiptail --gauge "Downloading system image (${NAME})" 10 50 0
+			fi
+
+			CHECKSUM2=$(sha256sum "${IMG_FILE}" | cut -d' ' -f1)
+			if [ "$CHECKSUM" != "$CHECKSUM2" ]; then
+				rm -f "${IMG_FILE}"
+				echo "checksum does not match; aborting"
+				echo "  Expected: $CHECKSUM"
+				echo "  Actual:   $CHECKSUM2"
+				exit 1
+			fi
+		fi
+	fi
 
 	if [ -z ${SHOW_UI} ]; then
 		echo "installing ${NAME}..."
@@ -430,6 +478,7 @@ main() {
 	zenkai-initramfs
 
 	rm -f ${MOUNT_PATH}/*.img.*
+	rm -f "${MOUNT_PATH}/sha256sum.txt" 2>/dev/null || true
 
 	rm -rf /var/lib/pacman # undo zenkai-unlock
 
