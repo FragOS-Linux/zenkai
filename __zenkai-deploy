@@ -14,7 +14,6 @@ get_img_url() {
     result=$(echo "${result}" | jq 'map(select(.assets | all(.state == "uploaded")))')
 
     # Always check for stable date
-<<<<<<< HEAD
     stable_release_date="1970-01-01T00:00:00Z"
     stable_download_url=""
 
@@ -22,30 +21,11 @@ get_img_url() {
     if [ -n "$stable_entry" ]; then
         stable_release_date=$stable_entry
         stable_download_url=$(echo "${result}" | jq -r '.[] | select(.prerelease == false) | .assets[] | select(.browser_download_url | test("img")) | .browser_download_url' | head -1)
-=======
-    if stable_release_date=$(echo "${result}" | jq -er '[ .[] |
-            select(.prerelease==false) ] |
-            first |
-            .created_at'
-        ); then
-        # Check for stable url
-        stable_download_url=$(echo "${result}" | jq -r '[ .[] |
-            select(.prerelease==false) ] |
-            first |
-            .assets[] |
-            select(.browser_download_url | test("img")) |
-            .browser_download_url'
-        )
-    else
-        stable_release_date="1970-01-01T00:00:00Z"
-        stable_download_url=""
->>>>>>> origin/main
     fi
 
     # Filter channels by release naming conventions
     if [[ "$CHANNEL" =~ ^[0-9]+\-?[0-9]*$ ]] ; then
         # Explicit version numbers
-<<<<<<< HEAD
         result=$(echo "${result}" | jq -r --arg ver "$CHANNEL" '.[] |
                   select(.prerelease == false) |
                   select(.name | endswith($ver)) |
@@ -53,21 +33,10 @@ get_img_url() {
                   select(.browser_download_url | test("img")) |
                   .browser_download_url' |
                   head -1)
-=======
-        result=$(echo "${result}" | jq -r "[ .[] |
-                    select(.prerelease==false) |
-                    select(.name | test(\" ${CHANNEL}\$\")) ] |
-                    first |
-                    .assets[] |
-                    select(.browser_download_url | test(\"img\")) |
-                    .browser_download_url"
-                )
->>>>>>> origin/main
     elif [ "$CHANNEL" == "stable" ]; then
         result=$stable_download_url
     elif [ "$CHANNEL" == "testing" ]; then
         # Testing channel
-<<<<<<< HEAD
         testing_entry=$(echo "${result}" | jq '.[] |
                      select(.prerelease == true) |
                      select(.name | test("\\[.*\\]") | not) |
@@ -82,25 +51,6 @@ get_img_url() {
                          .browser_download_url' | head -1)
 
             if [ $(date -d "$testing_entry" +%s) -gt $(date -d "$stable_release_date" +%s) ]; then
-=======
-        if testing_release_date=$(echo "${result}" | jq -er '[ .[] |
-            select(.prerelease==true) |
-            select(.name | test("\\[.*\\]") | not) ] |
-            first |
-            .created_at'
-            ); then
-            testing_url=$(echo "${result}" | jq -r '[ .[] |
-                        select(.prerelease==true) |
-                        select(.name | test("\\[.*\\]") | not) ] |
-                        first |
-                        .assets[] |
-                        select(.browser_download_url | test("img")) |
-                        .browser_download_url'
-                    )
-            if [ $(date -d "$testing_release_date" +%s) -le $(date -d "$stable_release_date" +%s) ]; then
-                result=$stable_download_url
-            else
->>>>>>> origin/main
                 result=$testing_url
             else
                 result=$stable_download_url
@@ -110,7 +60,6 @@ get_img_url() {
         fi
     else
         # Custom channel
-<<<<<<< HEAD
         channel_entry=$(echo "${result}" | jq --arg chan "$CHANNEL" '.[] |
                       select(.prerelease == true) |
                       select(.name | test("\\[" + $chan + "\\]"; "i"))')
@@ -122,19 +71,6 @@ get_img_url() {
                           .browser_download_url' | head -1)
 
             if [ $(date -d "$unstable_release_date" +%s) -gt $(date -d "$stable_release_date" +%s) ]; then
-=======
-        filtered=$(echo "${result}" | jq "[ .[] |
-                    select(.prerelease==true) |
-                    select(.name | test(\"\\\[${CHANNEL}\\\]\"; \"i\")) ]")
-
-        if [ "$(echo "$filtered" | jq 'length')" -gt 0 ]; then
-            unstable_release_date=$(echo "$filtered" | jq -r '.[0].created_at')
-            unstable_url=$(echo "$filtered" | jq -r '.[0] | .assets[] | select(.browser_download_url | test("img")) | .browser_download_url')
-
-            if [ $(date -d "$unstable_release_date" +%s) -le $(date -d "$stable_release_date" +%s) ]; then
-                result=$stable_download_url
-            else
->>>>>>> origin/main
                 result=$unstable_url
             else
                 result=$stable_download_url
@@ -146,11 +82,7 @@ get_img_url() {
 
     # Check if the result contains split files
     if [[ "$result" == *".part.aa"* ]]; then
-<<<<<<< HEAD
         release_id=$(echo "$releases_json" | jq -r '.[0].id')
-=======
-        release_id=$(echo "${result}" | jq -r '.[0].id')
->>>>>>> origin/main
         parts=$(curl -s "https://api.github.com/repos/${REPO}/releases/${release_id}/assets" | \
                 jq -r '.[] | select(.name | test(".*part.a[a-z]")) | .browser_download_url' | sort)
         echo $parts
@@ -437,11 +369,7 @@ main() {
             fi
 
             if [ -n "$CHECKSUM" ]; then
-<<<<<<< HEAD
                 CHECKSUM2=$(sha256sum "${IMG_FILE}" | cut -d' ' -f1)
-=======
-                CHECKSUM2=$(sha256sum "${IMG_FILE}" | cut -d' ' -f 1)
->>>>>>> origin/main
                 if [ "$CHECKSUM" != "$CHECKSUM2" ]; then
                     rm -f "${IMG_FILE}"
                     echo "checksum does not match; aborting"
@@ -520,13 +448,8 @@ main() {
     fi
 
     # Clean up
-<<<<<<< HEAD
     rm -f "${MOUNT_PATH}"/*.img.*
     rm -f "${MOUNT_PATH}/sha256sum.txt"
-=======
-    rm -f ${MOUNT_PATH}/*.img.*
-    rm -f ${MOUNT_PATH}/sha256sum.txt
->>>>>>> origin/main
     rm -rf /var/lib/pacman # undo zenkai-unlock
 
     echo "Deployment complete; restart to boot into ${NAME}"
