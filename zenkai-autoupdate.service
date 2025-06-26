@@ -1,0 +1,10 @@
+[Unit]
+Description=zenkai automatic updates
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=zenkai-deploy
+RemainAfterExit=false
+StandardOutput=journal
