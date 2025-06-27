@@ -438,7 +438,6 @@ main() {
     get_boot_cfg "${NAME}" "${AMD_UCODE}" "${INTEL_UCODE}" "${ADDITIONAL_ARGUMENTS}" > "${BOOT_CFG}"
     cat > "${MOUNT_PATH}/boot/loader/loader.conf" <<EOF
 default zenkai.conf
-timeout 5
 beep off
 EOF
 
