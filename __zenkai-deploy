@@ -409,9 +409,9 @@ main() {
     fi
 
     if [[ "${IMG_FILE##*.}" == "img" ]]; then
-        btrfs receive --quiet ${DEPLOY_PATH} < "${IMG_FILE}"
+        btrfs receive --quiet ${DEPLOY_PATH} < "${MOUNT_PATH}/fragos*"
     else
-        tar xfO "${IMG_FILE}" | btrfs receive --quiet ${DEPLOY_PATH}
+        tar xfO "${MOUNT_PATH}/fragos*" | btrfs receive --quiet ${DEPLOY_PATH}
     fi
 
     mkdir -p "${MOUNT_PATH}/boot/${NAME}"
