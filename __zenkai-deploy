@@ -102,7 +102,7 @@ linux /${version}/vmlinuz-linux
 ${amd_ucode}
 ${intel_ucode}
 initrd /${version}/initramfs-linux.img
-options root=LABEL=zenkai_root rw rootflags=subvol=deployments/${version}loglevel=3 rd.systemd.show_status=auto rd.udev.log_priority=3 ${additional_arguments}"
+options root=LABEL=zenkai_root rw rootflags=subvol=deployments/${version} loglevel=3 rd.systemd.show_status=auto rd.udev.log_priority=3 ${additional_arguments}"
 }
 
 get_deployment_to_delete() {
@@ -438,6 +438,7 @@ main() {
     get_boot_cfg "${NAME}" "${AMD_UCODE}" "${INTEL_UCODE}" "${ADDITIONAL_ARGUMENTS}" > "${BOOT_CFG}"
     cat > "${MOUNT_PATH}/boot/loader/loader.conf" <<EOF
 default zenkai.conf
+timeout 0
 beep off
 EOF
 
